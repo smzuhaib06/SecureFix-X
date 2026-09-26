@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+*.db
+.env
+
+# Node
+node_modules/
+.next/
+out/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated test files (from SECUREFIX runs)
+demo-app/tests/test_securefix_regression_*.py
+
+# IDE
+.vscode/
+.idea/
+*.swp

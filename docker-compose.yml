@@ -1,0 +1,60 @@
+version: "3.9"
+
+services:
+
+  # ── Intentionally vulnerable demo banking API ────────────────────────────────
+  demo-app:
+    build:
+      context: ./demo-app
+    container_name: securefix-demo-app
+    ports:
+      - "8001:8001"
+    environment:
+      SECRET_KEY: demo-secret-key-not-for-production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── SECUREFIX investigation backend ──────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+    container_name: securefix-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DEMO_REPO_PATH: /demo-app-src
+    volumes:
+      # Mount demo app source so backend agents can read it
+      - ./demo-app:/demo-app-src:rw
+    depends_on:
+      demo-app:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── SECUREFIX Next.js frontend ───────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: securefix-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  default:
+    name: securefix-network
