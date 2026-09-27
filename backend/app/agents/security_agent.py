@@ -2,6 +2,11 @@
 Security Investigation Agent
 Analyzes the reported security issue against the repository source code.
 Identifies vulnerable data flows, missing checks, attack paths, and root causes.
+
+Every finding is annotated with FindingStatus:
+- CONFIRMED: has file + line + evidence excerpt from actual source
+- HYPOTHESIS: pattern suggests vulnerability but missing definitive evidence
+- UNSUPPORTED: analysis cannot be performed for this technology/pattern
 """
 import os
 import re
@@ -11,7 +16,7 @@ from typing import List, Dict, Tuple, Optional
 from app.agents.base import BaseAgent
 from app.models import (
     AgentFinding, AgentResult, AgentStatus,
-    Investigation, Severity,
+    FindingStatus, Investigation, Severity,
 )
 
 # ── Vulnerability pattern library ─────────────────────────────────────────────
@@ -104,6 +109,22 @@ VULN_PATTERNS = {
 
 IGNORE_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", "dist", "build"}
 
+# ── JavaScript / Node.js / Express supplemental rules ────────────────────────
+# Applied only when the file is .js and the investigation involves NoSQL/injection.
+
+JS_NOSQL_PATTERNS = [
+    # Model.find({ field: req.body.x })  — no sanitization wrapper
+    re.compile(
+        r'\w+\s*\.\s*(?:find|findOne|findById|countDocuments)\s*\(\s*\{[^}]*req\.(body|query|params)',
+        re.DOTALL,
+    ),
+]
+
+JS_NOSQL_ANTI_PATTERNS = [
+    re.compile(r"mongo(?:db)?-sanitize|mongoSanitize|express-mongo-sanitize", re.IGNORECASE),
+    re.compile(r"typeof\s+req\.(body|query)\.\w+\s*===?\s*['\"]string['\"]", re.IGNORECASE),
+]
+
 
 class SecurityAgent(BaseAgent):
     name = "security_agent"
@@ -141,8 +162,9 @@ class SecurityAgent(BaseAgent):
                 seen.add(key)
                 unique.append(f)
 
-        if not unique:
-            unique = self._heuristic_analysis(repo_path, issue, relevant_files)
+        # Do NOT fall through to heuristic analysis — if no pattern-based findings exist,
+        # the result is 0 findings, not a fabricated fallback.
+        # The heuristic analysis was removed in the evidence-first redesign.
 
         severity = max(
             (f.severity for f in unique),
@@ -247,6 +269,8 @@ class SecurityAgent(BaseAgent):
             evidence = self._build_evidence(vuln_id, content, lines, hit_lines)
             attack_path = self._build_attack_path(vuln_id, rel_path, content)
 
+            # Derive evidence_excerpt from first hit line
+            first_hit_line = lines[hit_lines[0] - 1].strip() if hit_lines else ""
             findings.append(AgentFinding(
                 title=vuln["title"],
                 severity=vuln["severity"],
@@ -257,7 +281,96 @@ class SecurityAgent(BaseAgent):
                 recommendation=self._get_recommendation(vuln_id),
                 attack_path=attack_path,
                 root_cause=self._get_root_cause(vuln_id),
+                # Evidence-grounded status
+                finding_status=FindingStatus.CONFIRMED,
+                file_line_start=min(hit_lines),
+                file_line_end=max(hit_lines),
+                evidence_excerpt=first_hit_line,
+                technology=self._tech_from_path(rel_path),
+                vulnerability_class=vuln_id,
+                provenance=f"SecurityAgent: pattern '{vuln_id}' matched at {rel_path}:{min(hit_lines)}-{max(hit_lines)}",
             ))
+
+        # ── JavaScript-specific NoSQL injection analysis ──────────────────
+        if rel_path.endswith(".js") or rel_path.endswith(".ts"):
+            findings.extend(self._analyze_js_nosql(rel_path, content, lines, issue))
+
+        return findings
+
+    def _analyze_js_nosql(
+        self, rel_path: str, content: str, lines: list, issue: str
+    ) -> "List[AgentFinding]":
+        """
+        Detect NoSQL injection patterns in JavaScript files.
+        Only produces a finding when both:
+        1. A Mongoose query receives req.body/query/params in the filter object.
+        2. No operator-sanitization library is detected in the file.
+        """
+        nosql_keywords = ["nosql", "injection", "mongo", "authentication", "login", "query"]
+        if not any(kw in issue.lower() for kw in nosql_keywords):
+            return []
+
+        # Check mitigations at file level
+        if any(p.search(content) for p in JS_NOSQL_ANTI_PATTERNS):
+            return []
+
+        findings = []
+        for pat in JS_NOSQL_PATTERNS:
+            for m in pat.finditer(content):
+                line_number = content[: m.start()].count("\n") + 1
+                raw = lines[line_number - 1].strip() if line_number <= len(lines) else ""
+
+                # Extract what req source is used (body/query/params)
+                req_source = m.group(1) if m.lastindex and m.lastindex >= 1 else "body/query"
+
+                # Gather surrounding context for evidence (up to 4 lines)
+                ctx_start = max(0, line_number - 2)
+                ctx_end = min(len(lines), line_number + 3)
+                context = [
+                    f"  {ctx_start + i + 1}: {lines[ctx_start + i]}"
+                    for i in range(ctx_end - ctx_start)
+                ]
+
+                findings.append(AgentFinding(
+                    title="NoSQL Injection — Mongoose query receives unsanitized request input",
+                    severity=Severity.CRITICAL,
+                    files=[rel_path],
+                    line_ranges=[f"{line_number}"],
+                    evidence=[
+                        f"Line {line_number}: {raw}",
+                        f"Request source: req.{req_source} passed directly into Mongoose filter object",
+                        "MongoDB operator injection possible: attacker can supply "
+                        '{"$gt": ""} or {"$ne": null} instead of a string value',
+                        "No operator-sanitization library (mongo-sanitize / express-mongo-sanitize) detected",
+                    ] + context,
+                    recommendation=(
+                        "Validate that authentication inputs are plain strings before passing to "
+                        "Mongoose queries.  Use mongo-sanitize or express-mongo-sanitize to strip "
+                        "MongoDB operators from request objects.  "
+                        "Example: const clean = sanitize(req.body); User.find({username: clean.username, ...})"
+                    ),
+                    attack_path=[
+                        f"Attacker sends JSON body to POST route in {rel_path}",
+                        f'Payload: {{"username": "victim@example.com", "password": {{"$gt": ""}}}}',
+                        f"req.{req_source} is passed directly to Mongoose .find() filter",
+                        "MongoDB evaluates $gt operator: all non-empty passwords match",
+                        "Authentication succeeds without valid credentials",
+                    ],
+                    root_cause=(
+                        f"The Mongoose query in {rel_path} line {line_number} accepts "
+                        f"req.{req_source} fields as filter values without ensuring they are "
+                        "plain strings.  MongoDB interprets JSON objects as query operators "
+                        "(e.g. $gt, $ne, $regex), allowing an attacker to bypass string comparison."
+                    ),
+                    # Evidence-grounded status
+                    finding_status=FindingStatus.CONFIRMED,
+                    file_line_start=line_number,
+                    evidence_excerpt=raw,
+                    source=f"req.{req_source}",
+                    sink="Mongoose.findOne({})",
+                    technology="javascript/nodejs",
+                    provenance=f"SecurityAgent: JS NoSQL injection pattern at {rel_path}:{line_number}",
+                ))
 
         return findings
 
@@ -383,33 +496,33 @@ class SecurityAgent(BaseAgent):
         }
         return causes.get(vuln_id, "Insufficient input validation or access control.")
 
-    # ── Heuristic fallback ────────────────────────────────────────────────────
+    # Heuristic fallback REMOVED in evidence-first redesign.
+    # Generic keyword-based findings cannot be CONFIRMED without actual source evidence.
+    # If pattern analysis finds nothing, the result is 0 confirmed findings.
 
-    def _heuristic_analysis(
-        self, repo_path: str, issue: str, rel_files: List[str]
-    ) -> List[AgentFinding]:
-        """Fallback: produce a finding based on issue description keywords."""
-        if any(w in issue for w in ["authorization", "access", "account", "idor", "bola"]):
-            return [AgentFinding(
-                title="Potential Broken Object Level Authorization",
-                severity=Severity.HIGH,
-                confidence=0.65,
-                files=rel_files[:3],
-                evidence=[
-                    "Issue description indicates authorization control concern",
-                    "Resource-access endpoints found without ownership verification patterns",
-                ],
-                recommendation=(
-                    "Review all resource-access endpoints and ensure the authenticated user's ID "
-                    "is compared against the resource's owner ID before returning data."
-                ),
-                attack_path=[
-                    "Authenticated user manipulates resource ID in request",
-                    "Endpoint fetches resource without ownership check",
-                    "Unauthorized data returned to caller",
-                ],
-                root_cause=(
-                    "Missing ownership authorization in resource-access endpoints."
-                ),
-            )]
-        return []
+    @staticmethod
+    def _tech_from_path(rel_path: str) -> str:
+        """Derive the technology label from the file extension.
+
+        Rules:
+        - .py  → python
+        - .js  → javascript/nodejs
+        - .ts  → typescript/nodejs
+        - .rb  → ruby
+        - .go  → go
+        - .java → java
+        Never hardcoded to a single language.
+        """
+        if rel_path.endswith(".py"):
+            return "python"
+        if rel_path.endswith(".js"):
+            return "javascript/nodejs"
+        if rel_path.endswith(".ts"):
+            return "typescript/nodejs"
+        if rel_path.endswith(".rb"):
+            return "ruby"
+        if rel_path.endswith(".go"):
+            return "go"
+        if rel_path.endswith(".java"):
+            return "java"
+        return "unknown"

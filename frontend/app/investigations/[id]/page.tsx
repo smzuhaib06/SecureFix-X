@@ -7,6 +7,7 @@ import {
   ArrowLeft, CheckCircle2, Clock, FileCode2, ShieldAlert,
   GitBranch, Wrench, AlertTriangle, ThumbsUp, ThumbsDown,
   Code2, TestTube2, BarChart3, FileText, Download, TrendingDown,
+  Brain,
 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -16,10 +17,11 @@ import AttackPathVisual from "@/components/investigation/AttackPathVisual";
 import DiffViewer from "@/components/investigation/DiffViewer";
 import VerificationPanel from "@/components/investigation/VerificationPanel";
 import BeforeAfterPanel from "@/components/investigation/BeforeAfterPanel";
+import AIReasoningPanel from "@/components/investigation/AIReasoningPanel";
 import { api } from "@/lib/api";
 import type { Investigation, ProgressEvent } from "@/lib/types";
 
-type Tab = "overview" | "agents" | "evidence" | "root-cause" | "patch" | "verification" | "timeline" | "before-after";
+type Tab = "overview" | "ai-reasoning" | "agents" | "evidence" | "root-cause" | "patch" | "verification" | "timeline" | "before-after";
 
 export default function InvestigationDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -47,7 +49,7 @@ export default function InvestigationDetailPage() {
   // Synchronize tab state if URL query param changes
   useEffect(() => {
     const tabParam = searchParams.get("tab") as Tab;
-    if (tabParam && ["overview", "agents", "evidence", "root-cause", "patch", "verification", "timeline", "before-after"].includes(tabParam)) {
+    if (tabParam && ["overview", "ai-reasoning", "agents", "evidence", "root-cause", "patch", "verification", "timeline", "before-after"].includes(tabParam)) {
       setTab(tabParam);
     }
   }, [searchParams]);
@@ -160,6 +162,7 @@ export default function InvestigationDetailPage() {
 
   const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
     { key: "overview",     label: "Overview",     icon: BarChart3     },
+    { key: "ai-reasoning", label: "AI Reasoning", icon: Brain         },
     { key: "agents",       label: "Agents",       icon: GitBranch     },
     { key: "evidence",     label: "Evidence",     icon: ShieldAlert   },
     { key: "root-cause",   label: "Root Cause",   icon: AlertTriangle },
@@ -235,6 +238,7 @@ export default function InvestigationDetailPage() {
         {/* Body */}
         <main className="flex-1 overflow-y-auto px-8 py-6">
           {tab === "overview" && <OverviewTab inv={inv} liveMessages={liveMessages} />}
+          {tab === "ai-reasoning" && <AIReasoningPanel inv={inv} />}
           {tab === "agents" && <AgentsTab inv={inv} runningAgents={runningAgents} />}
           {tab === "evidence" && <EvidenceTab inv={inv} />}
           {tab === "root-cause" && <RootCauseTab inv={inv} />}

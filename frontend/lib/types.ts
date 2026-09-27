@@ -26,6 +26,10 @@ export interface AgentFinding {
   recommendation: string;
   attack_path: string[];
   root_cause: string;
+  evidence_excerpt?: string;
+  file_line_start?: number;
+  file_line_end?: number;
+  technology?: string;
 }
 
 export interface AgentResult {
@@ -130,8 +134,60 @@ export interface Investigation {
   root_cause?: RootCauseAnalysis;
   remediation?: RemediationProposal;
   verification?: VerificationResult;
+  ai_reasoning?: AIReasoningData;
   timeline: TimelineEvent[];
   progress_pct: number;
+}
+
+export interface AIReasoningClaim {
+  claim: string;
+  status: "OBSERVED" | "INFERRED" | "RECOMMENDED" | "UNSUPPORTED";
+  supporting_evidence_ids?: string[];
+  confidence: number;
+  limitation?: string;
+}
+
+export interface AIReasoningAttackStep {
+  step: number;
+  description: string;
+  evidence_basis: string;
+  observation_status: "OBSERVED" | "INFERRED";
+}
+
+export interface AIRagCitation {
+  identifier: string;
+  source: string;
+  title: string;
+  section: string;
+  score: number;
+}
+
+export interface AIReasoningData {
+  investigation_id?: string;
+  provider_used?: string;
+  model_used?: string;
+  reasoning_latency_ms?: number;
+  ran_in_deterministic_mode?: boolean;
+  vulnerability_title?: string;
+  primary_cwe?: string;
+  primary_owasp?: string;
+  severity_assessment?: string;
+  severity_observation_status?: "OBSERVED" | "INFERRED";
+  root_cause_summary?: string;
+  root_cause_observation_status?: "OBSERVED" | "INFERRED";
+  attack_path?: AIReasoningAttackStep[];
+  grounded_claims?: AIReasoningClaim[];
+  primary_remediation?: string;
+  remediation_code_example?: string;
+  recommended_tests?: Array<{ title: string; description: string; test_type?: string }>;
+  rag_citations?: AIRagCitation[];
+  evidence_gaps?: string[];
+  cannot_determine?: string[];
+  grounding_confidence?: number;
+  evidence_sufficiency?: string;
+  deterministic_override_applied?: boolean;
+  deterministic_override_note?: string;
+  verification_explanation?: string;
 }
 
 export interface InvestigationSummary {

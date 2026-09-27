@@ -1,16 +1,24 @@
 """
 Evidence Correlation Engine
 Correlates findings from all agents into a unified picture.
-Identifies when multiple agents point to the same underlying issue.
+
+KEY RULES:
+- Primary finding MUST come from a CONFIRMED finding with real evidence.
+- If no CONFIRMED findings exist: investigation_outcome = NO_CONFIRMED_FINDING
+- Generic fallback text cannot become the primary finding.
+- Confidence is only computed from CONFIRMED findings; arbitrary percentages are rejected.
+- Attack path is taken from actual findings, never fabricated.
 """
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from app.models import (
-    AgentResult, CorrelationResult, EvidenceItem,
-    Investigation, Severity,
+    AgentFinding, AgentResult, CorrelationResult, EvidenceItem,
+    EvidenceValidator, FindingStatus, Investigation, Severity,
 )
 
 
 SEVERITY_ORDER = ["info", "low", "medium", "high", "critical"]
+
+_validator = EvidenceValidator()
 
 
 class CorrelationEngine:
@@ -20,14 +28,28 @@ class CorrelationEngine:
 
         evidence_items: List[EvidenceItem] = []
         all_files: List[str] = []
-        total_confidence = 0.0
-        confidence_count = 0
+        confirmed_findings: List[AgentFinding] = []
+        hypothesis_findings: List[AgentFinding] = []
+        unsupported_findings: List[AgentFinding] = []
 
-        # Gather all evidence across agents
+        # ── Gather and classify findings ───────────────────────────────────
         for agent_name, result in results.items():
             if result.status.value not in ("completed",):
                 continue
             for finding in result.findings:
+                # Classify by status
+                if finding.finding_status == FindingStatus.CONFIRMED:
+                    # Validate before accepting
+                    vr = _validator.validate(finding)
+                    if vr.valid:
+                        confirmed_findings.append(finding)
+                    # Still collect evidence items even for invalid findings
+                elif finding.finding_status == FindingStatus.HYPOTHESIS:
+                    hypothesis_findings.append(finding)
+                else:  # UNSUPPORTED
+                    unsupported_findings.append(finding)
+
+                # Collect evidence items from all completed findings
                 for ev_text in finding.evidence:
                     evidence_items.append(EvidenceItem(
                         source=agent_name,
@@ -38,25 +60,30 @@ class CorrelationEngine:
                         severity=finding.severity,
                     ))
                 all_files.extend(self._normalise_paths(finding.files))
-                if finding.confidence:
-                    total_confidence += finding.confidence
-                    confidence_count += 1
 
-        # Identify primary finding
-        primary = self._identify_primary_finding(results, issue)
-        attack_path = self._build_attack_path(results)
+        # ── Determine investigation outcome ────────────────────────────────
+        if confirmed_findings:
+            investigation_outcome = "CONFIRMED"
+        elif hypothesis_findings:
+            investigation_outcome = "PARTIAL"
+        elif unsupported_findings:
+            investigation_outcome = "UNSUPPORTED"
+        else:
+            investigation_outcome = "NO_CONFIRMED_FINDING"
 
-        # Compute aggregate confidence
-        base_confidence = (total_confidence / confidence_count) if confidence_count else 0.5
-        # Boost confidence when multiple agents corroborate
-        agents_with_findings = sum(
-            1 for r in results.values()
-            if r.status.value == "completed" and r.findings
+        # ── Primary finding: MUST come from a CONFIRMED finding ────────────
+        primary = self._identify_primary_finding_from_confirmed(
+            confirmed_findings, investigation_outcome, issue
         )
-        corroboration_boost = min(0.15, agents_with_findings * 0.03)
-        final_confidence = min(0.99, base_confidence + corroboration_boost)
 
-        # Build evidence graph
+        # ── Attack path: only from actual findings ─────────────────────────
+        attack_path = self._build_attack_path(results, confirmed_findings)
+
+        # ── Confidence: derived from CONFIRMED findings only ───────────────
+        # No arbitrary percentage — derived from evidence count and corroboration
+        confidence = self._compute_confidence(confirmed_findings, results)
+
+        # ── Evidence graph ─────────────────────────────────────────────────
         evidence_graph = self._build_evidence_graph(results, primary)
 
         return CorrelationResult(
@@ -64,8 +91,12 @@ class CorrelationEngine:
             corroborating_evidence=evidence_items,
             affected_files=list(dict.fromkeys(all_files)),
             attack_path=attack_path,
-            confidence=round(final_confidence, 2),
+            confidence=round(confidence, 2),
             evidence_graph=evidence_graph,
+            investigation_outcome=investigation_outcome,
+            confirmed_finding_count=len(confirmed_findings),
+            hypothesis_count=len(hypothesis_findings),
+            unsupported_count=len(unsupported_findings),
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -75,15 +106,13 @@ class CorrelationEngine:
         result = []
         for f in files:
             p = f.replace("\\", "/")
-            # If it looks absolute, find the first known anchor dir
             if p.startswith("/"):
-                for anchor in ("app/", "tests/", "src/"):
+                for anchor in ("app/", "tests/", "src/", "routes/"):
                     idx = p.find("/" + anchor)
                     if idx != -1:
                         p = p[idx + 1:]
                         break
                 else:
-                    # Last resort — keep only the basename
                     p = p.split("/")[-1]
             result.append(p)
         return result
@@ -100,54 +129,105 @@ class CorrelationEngine:
         }
         return mapping.get(agent_name, "unknown")
 
-    def _identify_primary_finding(
-        self, results: Dict[str, AgentResult], issue: str
+    def _identify_primary_finding_from_confirmed(
+        self,
+        confirmed_findings: List[AgentFinding],
+        investigation_outcome: str,
+        issue: str,
     ) -> str:
-        # Find the highest-severity finding across all agents
-        best_title = ""
-        best_sev = -1
+        """
+        Primary finding MUST come from a CONFIRMED, evidence-backed finding.
 
-        for result in results.values():
-            for finding in result.findings:
-                sev_idx = SEVERITY_ORDER.index(finding.severity.value) if finding.severity.value in SEVERITY_ORDER else 0
-                if sev_idx > best_sev:
-                    best_sev = sev_idx
-                    best_title = finding.title
+        If no confirmed findings exist, returns a structured outcome string
+        that accurately reflects the investigation state — never a fabricated
+        vulnerability name.
+        """
+        if not confirmed_findings:
+            if investigation_outcome == "NO_CONFIRMED_FINDING":
+                return "NO_CONFIRMED_FINDING: No agent produced a confirmed evidence-backed finding"
+            elif investigation_outcome == "PARTIAL":
+                return "PARTIAL: Hypothesis-level findings only — no confirmed evidence-backed finding"
+            elif investigation_outcome == "UNSUPPORTED":
+                return "UNSUPPORTED: Analysis capability is insufficient for this repository"
+            else:
+                return "NO_CONFIRMED_FINDING: Investigation produced no actionable findings"
 
-        if best_title:
-            return best_title
+        # Find the highest-severity confirmed finding
+        best = max(
+            confirmed_findings,
+            key=lambda f: SEVERITY_ORDER.index(f.severity.value)
+            if f.severity.value in SEVERITY_ORDER else 0,
+        )
+        return best.title
 
-        # Fallback: derive from issue description
-        issue_lower = issue.lower()
-        if "traversal" in issue_lower or "path" in issue_lower:
-            return "Path Traversal"
-        if "command" in issue_lower or "shell" in issue_lower or "rce" in issue_lower:
-            return "Command Injection"
-        if "authorization" in issue_lower or "access" in issue_lower or "account" in issue_lower:
-            return "Broken Object Level Authorization (BOLA)"
-        if "sql" in issue_lower or "injection" in issue_lower:
-            return "SQL Injection"
-        if "auth" in issue_lower:
-            return "Authentication Failure"
-        return "Security Vulnerability Detected"
+    def _build_attack_path(
+        self,
+        results: Dict[str, AgentResult],
+        confirmed_findings: List[AgentFinding],
+    ) -> List[str]:
+        """
+        Attack path comes from the highest-confidence CONFIRMED finding only.
+        Returns empty list (not a generic fabricated path) if none available.
+        """
+        # First preference: confirmed findings with attack paths
+        for finding in confirmed_findings:
+            if finding.attack_path:
+                return finding.attack_path
 
-    def _build_attack_path(self, results: Dict[str, AgentResult]) -> List[str]:
-        # Use the attack path from the highest-confidence security finding
+        # Second preference: any finding from security/code agents with attack path
         for agent_name in ("security_agent", "code_agent"):
             result = results.get(agent_name)
             if not result:
                 continue
             for finding in result.findings:
-                if finding.attack_path:
+                if (
+                    finding.finding_status == FindingStatus.CONFIRMED
+                    and finding.attack_path
+                ):
                     return finding.attack_path
 
-        # Contextual fallback
-        return [
-            "Attacker submits crafted request targeting vulnerable endpoint",
-            "Server processes input without adequate security controls",
-            "Security boundary is bypassed",
-            "Attacker gains unauthorized access, executes commands, or reads sensitive data",
+        # No confirmed attack path — return empty, not fabricated
+        return []
+
+    def _compute_confidence(
+        self,
+        confirmed_findings: List[AgentFinding],
+        results: Dict[str, AgentResult],
+    ) -> float:
+        """
+        Confidence is derived from:
+        - How many agents produced CONFIRMED findings (corroboration)
+        - Average confidence of confirmed findings
+
+        Never produces an arbitrary percentage.
+        Returns 0.0 if no confirmed findings.
+        """
+        if not confirmed_findings:
+            return 0.0
+
+        # Count agents with confirmed findings
+        agent_confirmed_count = sum(
+            1 for result in results.values()
+            if result.status.value == "completed"
+            and any(
+                f.finding_status == FindingStatus.CONFIRMED and _validator.validate(f).valid
+                for f in result.findings
+            )
+        )
+
+        # Average confidence across confirmed findings that have it set
+        findings_with_confidence = [
+            f.confidence for f in confirmed_findings if f.confidence > 0.0
         ]
+        avg_confidence = (
+            sum(findings_with_confidence) / len(findings_with_confidence)
+            if findings_with_confidence else 0.5
+        )
+
+        # Corroboration boost: each additional corroborating agent adds a small boost
+        corroboration_boost = min(0.15, (agent_confirmed_count - 1) * 0.05)
+
+        return min(0.99, avg_confidence + corroboration_boost)
 
     def _build_evidence_graph(
         self, results: Dict[str, AgentResult], primary: str

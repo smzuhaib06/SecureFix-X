@@ -10,6 +10,8 @@ build/
 .pytest_cache/
 *.db
 .env
+.env.*
+!.env.example
 
 # Node
 node_modules/
@@ -21,8 +23,13 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Generated test files (from SECUREFIX runs)
+# Generated test files and sandboxes
 demo-app/tests/test_securefix_regression_*.py
+nodejs-goof
+securefix_sandbox_*
+/tmp/securefix_sandbox_*
+logs/
+*.log
 
 # IDE
 .vscode/

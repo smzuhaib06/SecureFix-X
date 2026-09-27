@@ -84,7 +84,59 @@ class AgentOrchestrator:
             await self._publish_progress(investigation, "root_cause_done",
                                          "Root cause identified", 83)
 
-            # Phase 5: Patch Generation
+            # Phase 4b: Security Invariant derivation (additive — does not alter root cause)
+            await self._publish_progress(investigation, "invariant_started",
+                                         "Deriving security invariant", 84)
+            invariant = self.root_cause_engine.derive_invariant(investigation)
+            investigation.security_invariant = invariant
+            store.update(investigation)
+            invariant_status = "derived" if invariant.supported else "unsupported"
+            await self._add_timeline(
+                investigation,
+                f"Security invariant {invariant_status}",
+                (
+                    f"Class: {invariant.vulnerability_class.value}, CWE: {invariant.cwe}"
+                    if invariant.supported
+                    else f"Unsupported: {invariant.unsupported_reason[:80] if invariant.unsupported_reason else ''}"
+                ),
+            )
+            await self._publish_progress(
+                investigation,
+                "invariant_done",
+                f"Security invariant {invariant_status}: {invariant.vulnerability_class.value}",
+                85,
+                data={"supported": invariant.supported, "cwe": invariant.cwe},
+            )
+
+            # ── Phase 5: AI Security Reasoning (additive — never blocks pipeline) ──
+            await self._publish_progress(investigation, "ai_reasoning_started",
+                                         "AI reasoning over evidence (grounded)", 86)
+            try:
+                from app.ai.evidence_package import EvidencePackageBuilder
+                from app.ai.security_reasoner import AISecurityReasoner
+
+                builder = EvidencePackageBuilder()
+                evidence_pkg = builder.build(investigation)
+
+                reasoner = AISecurityReasoner()
+                ai_result = reasoner.reason(evidence_pkg)
+
+                # Store result on investigation for API/UI access
+                investigation.ai_reasoning = ai_result.model_dump()
+                store.update(investigation)
+
+                ai_status = (
+                    f"AI reasoning complete (provider: {ai_result.provider_used}, "
+                    f"grounding: {ai_result.grounding_confidence:.0%})"
+                )
+            except Exception as ai_exc:
+                ai_status = f"AI reasoning skipped: {ai_exc}"
+                investigation.ai_reasoning = {"error": str(ai_exc), "skipped": True}
+                store.update(investigation)
+
+            await self._add_timeline(investigation, "AI reasoning complete", ai_status)
+            await self._publish_progress(investigation, "ai_reasoning_done",
+                                         ai_status, 87)
             await self._publish_progress(investigation, "patch_started",
                                          "Generating remediation patch", 87)
             proposal = self.remediation_engine.propose(investigation)
@@ -152,6 +204,24 @@ class AgentOrchestrator:
                 "Verification completed",
                 result.summary,
             )
+
+            # Phase 5L: AI explanation of verification (grounded, non-overriding)
+            try:
+                from app.ai.security_reasoner import AISecurityReasoner
+                reasoner = AISecurityReasoner()
+                explanation = reasoner.explain_verification(investigation)
+                if explanation:
+                    if investigation.ai_reasoning:
+                        investigation.ai_reasoning["verification_explanation"] = explanation
+                    else:
+                        investigation.ai_reasoning = {"verification_explanation": explanation}
+                    await self._add_timeline(
+                        investigation,
+                        "AI verification explanation",
+                        explanation[:120],
+                    )
+            except Exception:
+                pass
 
             if result.overall_status == "verified":
                 investigation.remediation.status = RemediationStatus.VERIFIED

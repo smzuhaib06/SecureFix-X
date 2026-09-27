@@ -266,10 +266,25 @@ def test_audit_log_api(client):
 
 
 def test_exploit_execution_detects_vulnerability():
-    """Verify that _check_exploit_blocked actually executes the attack and reports status."""
+    """
+    Verify that _check_exploit_blocked executes the real attack and detects the
+    BOLA vulnerability when the SecurityInvariant drives the oracle.
+
+    In the vulnerable (pre-fix) state:
+      - Alice → Bob's account (/api/accounts/2) returns HTTP 200
+      - Oracle outcome must be BYPASS (invariant violated)
+    """
     from app.verification.engine import VerificationEngine
-    from app.models import Investigation, RemediationProposal, FilePatch
+    from app.models import (
+        ExploitCheckOutcome, Investigation, RemediationProposal, FilePatch,
+        SecurityInvariant, VulnerabilityClass,
+    )
+    from app.remediation.root_cause import RootCauseEngine
+
     verifier = VerificationEngine()
+
+    # Build an investigation that matches the demo-app BOLA scenario,
+    # with the SecurityInvariant populated (as the orchestrator would do).
     inv = Investigation(
         title="BOLA Test",
         issue_description="BOLA on accounts",
@@ -286,11 +301,54 @@ def test_exploit_execution_detects_vulnerability():
             )],
         ),
     )
-    res = verifier._check_exploit_blocked(DEMO_REPO, inv)
-    # In vulnerable state, Alice accessing Bob's account returns HTTP 200
-    assert "status_code" in res
-    assert res["status_code"] == 200
-    assert res["blocked"] is False
-    assert "HTTP 200" in res["detail"]
+
+    # Build a minimal invariant with the SecureBank scenario values
+    # (these are scenario data, not generic engine assumptions)
+    from app.models import (
+        AttackScenario, InvariantScope, OracleExpectedOutcome,
+        SecurityOracle, InvariantProvenance,
+    )
+    invariant = SecurityInvariant(
+        vulnerability_class=VulnerabilityClass.BOLA,
+        cwe="CWE-639",
+        statement="Owner-only access",
+        scope=InvariantScope(routes=["/api/accounts/{account_id}"]),
+        attack=AttackScenario(
+            method="GET",
+            route_template="/api/accounts/{account_id}",
+            route_example="/api/accounts/2",
+            auth_endpoint="/api/auth/login",
+            auth_credentials={"username": "alice", "password": "alice123"},
+            auth_token_path="access_token",
+        ),
+        oracle=SecurityOracle(
+            description="Non-owner access must be blocked",
+            outcomes=[
+                OracleExpectedOutcome(
+                    label="attack_blocked",
+                    allowed_status_codes=[403, 404],
+                    forbidden_status_codes=[200, 201],
+                    protected_data_indicators=["balance", "account_number"],
+                ),
+                OracleExpectedOutcome(
+                    label="exploit_active",
+                    allowed_status_codes=[200, 201],
+                    forbidden_status_codes=[403, 404],
+                ),
+            ],
+        ),
+    )
+
+    check = verifier._check_exploit_blocked(DEMO_REPO, inv, invariant)
+
+    # In the vulnerable state, the oracle must detect BYPASS (HTTP 200 returned)
+    assert check.observed_status_code == 200, (
+        f"Expected HTTP 200 in vulnerable state, got {check.observed_status_code}"
+    )
+    assert check.outcome == ExploitCheckOutcome.BYPASS, (
+        f"Expected BYPASS in vulnerable state, got {check.outcome}"
+    )
+    assert check.status == "failed"  # legacy field synced
+    assert "HTTP 200" in check.detail or "BYPASS" in check.detail
 
 

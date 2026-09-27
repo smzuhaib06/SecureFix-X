@@ -1,256 +1,269 @@
-# SECUREFIX
+# SECUREFIX X
 
-> **Detect. Understand. Fix. Verify.**
+**AI-Assisted Security Remediation Assurance**
 
-Autonomous AI engineering workflow for investigating, fixing, testing, and verifying software security failures — end to end.
+> *Find it. Understand it. Fix it. Break the fix. Prove it.*
 
-Built for the **IBM Bob 2.0 Hackathon 2026**.
-
----
-
-## Problem
-
-Security findings don't end when a scanner produces an alert.
-
-Developers still have to:
-
-1. Understand the finding
-2. Search the repository manually
-3. Trace the data flow
-4. Identify the root cause
-5. Write a fix
-6. Write a regression test
-7. Run tests
-8. Verify the fix actually works
-
-That workflow is fragmented, time-consuming, and error-prone.
+[![Backend Tests](https://img.shields.io/badge/backend%20tests-368%20passed-brightgreen.svg)](#15-testing)
+[![Frontend Build](https://img.shields.io/badge/frontend%20build-passing-brightgreen.svg)](#14-deployment)
+[![Multi-Stack](https://img.shields.io/badge/multi--stack-Python%20%7C%20Node.js%20%7C%20TypeScript-blue.svg)](#10-github-repository-analysis)
+[![Platform](https://img.shields.io/badge/hackathon-IBM%20Bob%202.0-blueviolet.svg)](#11-supported-demonstration)
 
 ---
 
-## Solution
+## 1. Problem
 
-SECUREFIX compresses that workflow into one coordinated AI-assisted process.
+Modern cybersecurity scanners (SAST, DAST, SCA) excel at generating hundreds of vulnerability alerts. Similarly, generative AI coding assistants can generate syntactically plausible code patches in seconds.
 
+However: **A patch is not proof of remediation.**
+
+In modern software development:
+1. **Unverified Patches Cause Regressions:** A patch may superficially silence a scanner while leaving alternate attack paths or breaking legitimate business logic.
+2. **Context Fragmentation:** Developers must manually correlate dependencies, Dockerfiles, route definitions, and dataflow paths across fragmented tools.
+3. **Absence of Proof:** Code review teams have no automated way to prove whether a patch actually withstands adversarial bypass attempts before merging.
+
+---
+
+## 2. Solution
+
+**SECUREFIX X** transforms vulnerability remediation from superficial code editing into **verifiable security assurance**.
+
+Rather than relying on ungrounded chatbot suggestions, SECUREFIX X:
+1. Discovers and traces the vulnerability across the codebase using **7 specialized deterministic agents**.
+2. Correlates findings with authoritative security standards (CWE, OWASP ASVS v4.0.3) via **local RAG**.
+3. Synthesizes a formal **Security Invariant** using **grounded AI reasoning**.
+4. Enforces an explicit **Human-in-the-Loop Approval Gate** before code modification.
+5. Applies a minimal, auditable patch to the repository.
+6. **Actively attacks the patch** using bounded adversarial variant replay.
+7. Evaluates patch resilience through **controlled AST mutation testing**.
+8. Issues an unembellished guarantee: **VERIFIED WITHIN TESTED SCOPE**.
+
+---
+
+## 3. Seven Evidence Agents
+
+SECUREFIX X replaces monolithic prompt engineering with seven specialized, deterministic evidence agents:
+
+| Agent | Responsibility | Output Type |
+|---|---|---|
+| **Repository Intelligence Agent** | Analyzes project manifests, entrypoints, framework routers, and dependencies to construct a `TechnologyProfile`. | Deterministic Profile |
+| **Security Investigation Agent** | Detects high-risk vulnerability classes (BOLA/IDOR, SQLi, NoSQLi, Path Traversal). | Finding List |
+| **Code Analysis Agent** | Performs AST-level dataflow tracing from untrusted HTTP request sources (`req.body`, `params`) to database sinks (`Account.find`, `open`). | Direct AST Sinks |
+| **Dependency Agent** | Scans dependency manifests (`package.json`, `requirements.txt`) and audits versions against advisory databases. | Advisory Records |
+| **Configuration Agent** | Audits infrastructure and container security (`Dockerfile` root execution, environment handling, CORS). | Config Flaws |
+| **Test Analysis Agent** | Analyzes existing test suites, measures coverage, and synthesizes targeted regression tests. | Test Matrix |
+| **Runtime / Log Agent** | Evaluates execution logs and telemetry, honestly reporting status without inventing synthetic logs. | Telemetry Record |
+
+---
+
+## 4. Security Evidence Package
+
+All agent outputs are aggregated into a cryptographically grounded `SecurityEvidencePackage`:
+- **Evidence Strength Categorization:** Classifies evidence as `DIRECT`, `CORROBORATED`, `INFERRED`, or `UNAVAILABLE`.
+- **Line-Level Provenance:** Every code excerpt retains source file paths, line ranges, and SHA-256 commit hashes.
+- **Untrusted Code Quarantine:** Untrusted user code is quarantined inside defensive markdown boundaries to prevent prompt-injection attacks.
+
+---
+
+## 5. RAG (Retrieval-Augmented Generation)
+
+SECUREFIX X incorporates an offline, local RAG knowledge retrieval engine (`app/ai/rag.py`):
+- **Curated Knowledge Base:** Contains authoritative guidance from:
+  - OWASP ASVS v4.0.3 (Application Security Verification Standard)
+  - OWASP Top 10 (2021)
+  - Common Weakness Enumeration (CWE-943, CWE-639, CWE-22, CWE-250)
+  - Framework Hardening Guides (Express, Mongoose, FastAPI)
+- **Deterministic Vector Index:** Uses TF-IDF and BM25 lexical-semantic scoring with score thresholds that suppress unrelated queries.
+- **Attributed Provenance:** Citations include exact standard identifiers, titles, and relevance scores.
+
+---
+
+## 6. Grounded AI Reasoning
+
+The AI reasoning layer translates evidence into actionable explanations without hallucination:
+- **Dual-Mode AI Provider:**
+  - **Live LLM:** Fully integrated support for Google Gemini 2.0 Flash (`google-genai`) and OpenAI GPT-4o.
+  - **Deterministic Fallback:** Automatically active when no external API credentials are configured, ensuring 100% offline functionality.
+- **Strict Grounding Validator (`AIGroundingValidator`):** Programmatically verifies that all entities, routes, variables, and files referenced in reasoning exist within the `SecurityEvidencePackage`.
+
+---
+
+## 7. Human-in-the-Loop Approval Gate
+
+Security remediation requires human accountability:
+- The system pauses in state `AWAITING_APPROVAL`.
+- Developers inspect an interactive unified diff viewer detailing the exact code modifications.
+- Remediation and test execution only proceed upon explicit authorized human approval.
+
+---
+
+## 8. Adversarial Verification
+
+A fix that only passes the developer's unit test is not enough. SECUREFIX X's **Verification Engine** (`app/verification/engine.py`):
+- Replays bounded adversarial attack variants against the patched code (e.g. BSON `$gt` / `$ne` operator injections, parameter type confusion, directory traversal encodings).
+- Verifies that all exploit variants are cleanly rejected (e.g. HTTP 401/403/400).
+- Verifies legitimate user contract behavior to prevent breaking legitimate application workflows.
+
+---
+
+## 9. Mutation Assurance
+
+To ensure the verification process is not generating false-positive passes, SECUREFIX X features a **Controlled Mutation Testing Engine** (`app/verification/mutation.py`):
+- Generates deliberately flawed mutants of the proposed patch (e.g. inverted boolean checks, removed sanitizers, loosened regex).
+- Executes the verification suite against the mutants to prove the test suite reliably catches and fails on weakened fixes.
+- Computes an empirical Mutation Score (100% on benchmark targets).
+
+---
+
+## 10. GitHub Repository Analysis
+
+SECUREFIX X supports analyzing public GitHub repositories on-the-fly:
+- **Safe Sandboxing:** Validates URLs against strict regex and executes `git clone --depth 1 --single-branch` using discrete argument arrays (immune to shell injection).
+- **Ephemeral Sandbox Isolation:** Repositories are cloned to unique temporary sandbox directories in `/tmp` and automatically cleaned up in `finally:` blocks.
+- **Verified Remote Targets:**
+  - `https://github.com/vulnerable-apps/nodejs-goof` (Cloned & analyzed in 6.6s; detected JavaScript, Express, Mongoose, and CWE-943 NoSQL injection).
+  - `https://github.com/vulnerable-apps/juice-shop` (Cloned & analyzed in 17.6s; detected TypeScript, Express, 136 routes, Docker root execution).
+
+---
+
+## 11. Supported Demonstration
+
+The primary demonstration target is **Node.js Goof**:
+```text
+https://github.com/vulnerable-apps/nodejs-goof
+      ↓
+Detected Stack: JavaScript / Express / MongoDB
+      ↓
+Discovered Vulnerability: CWE-943 NoSQL Injection
+Source: routes/index.js (req.body.username, req.body.password)
+Sink: Account.find({ username: req.body.username, password: req.body.password })
+      ↓
+RAG Citations: CWE-943 + Express/Mongo Query Hardening
+      ↓
+Human Approval Gate → Remediation Applied
+      ↓
+Adversarial Verification → 0 / 3 Bypasses Succeeded
+      ↓
+Mutation Testing → 100% Mutation Detection Score
+      ↓
+VERIFIED WITHIN TESTED SCOPE
 ```
-Detection → Investigation → Evidence Correlation →
-Root Cause → Patch → Human Approval → Regression Test →
-Verification → Report
-```
-
-> **AI investigates. Human approves. System verifies.**
 
 ---
 
-## Architecture
+## 12. Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    SECUREFIX Frontend                   │
-│            Next.js · TypeScript · Tailwind CSS          │
-└────────────────────────┬────────────────────────────────┘
-                         │ REST + SSE
-┌────────────────────────▼────────────────────────────────┐
-│                   SECUREFIX Backend                     │
-│                FastAPI · Python · SQLite                │
-│                                                         │
-│  AgentOrchestrator                                      │
-│     ├── RepositoryAgent                                 │
-│     ├── SecurityAgent                                   │
-│     ├── CodeAgent          (parallel)                   │
-│     ├── DependencyAgent    (parallel)                   │
-│     ├── ConfigAgent        (parallel)                   │
-│     ├── TestAgent          (parallel)                   │
-│     └── RuntimeAgent       (parallel)                   │
-│                                                         │
-│  CorrelationEngine → RootCauseEngine                    │
-│  RemediationEngine → VerificationEngine                 │
-└─────────────────────────────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│               SecureBank Demo App                       │
-│          FastAPI · SQLite · JWT · bcrypt                │
-│     (Intentionally vulnerable for demonstration)        │
-└─────────────────────────────────────────────────────────┘
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│                   SECUREFIX X Web Application                          │
+│          Next.js 14 App Router · TypeScript · Tailwind CSS             │
+│        (Investigations, Multi-Agent Milestones, Live SSE)              │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ HTTP REST + Server-Sent Events
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                   SECUREFIX X Backend Service                          │
+│                    FastAPI · Python · SQLite                           │
+├────────────────────────────────────────────────────────────────────────┤
+│  AgentOrchestrator                                                     │
+│     ├── 7 Security Evidence Agents (Deterministic AST & Manifests)     │
+│     ├── TechnologyProfile Builder (Python, JS, TS detection)          │
+│     ├── Local RAG Vector Knowledge Base (OWASP, CWE, ASVS)             │
+│     ├── AI Security Reasoner (Gemini / OpenAI / Deterministic Engine)  │
+│     ├── AIGroundingValidator & Untrusted Code Isolation               │
+│     ├── Human Approval Gate State Machine                              │
+│     ├── RemediationEngine & Patch Application                          │
+│     ├── VerificationEngine & Adversarial Variant Replay                │
+│     └── Controlled AST Mutation Testing Engine                         │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Discrete Git CLI (Safe Sandboxing)
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                 Ephemeral Repository Sandbox (/tmp)                    │
+│   • Local target repositories (SecureBank)                             │
+│   • Public GitHub repositories (nodejs-goof, juice-shop)               │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Multi-Agent Workflow
-
-| Agent | Responsibility |
-|-------|---------------|
-| Repository Intelligence | Index structure, languages, frameworks, API routes, auth/DB components |
-| Security Investigation | Find vulnerable data flows, missing checks, attack paths |
-| Code Analysis | Data-flow and control-flow analysis on relevant files |
-| Dependency Analysis | Scan manifests for vulnerable packages |
-| Configuration Analysis | Dockerfile, .env, CORS, debug mode |
-| Test Coverage | Identify missing tests, generate regression test |
-| Runtime / Log | Analyze logs for exploitation evidence |
-
-All agents after Repository Intelligence run **in parallel**.
-
----
-
-## Technology Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Next.js 14, TypeScript, Tailwind CSS, Lucide Icons |
-| Backend | Python, FastAPI, Pydantic, SQLite |
-| Demo App | Python, FastAPI, SQLite, PyJWT, bcrypt |
-| Tests | pytest, FastAPI TestClient |
-| Streaming | Server-Sent Events (SSE) |
-
----
-
-## Demo Application
-
-**SecureBank API** — a realistic banking API with intentional security vulnerabilities.
-
-### Credentials
-
-| User | Password | User ID |
-|------|----------|---------|
-| alice | alice123 | 1 |
-| bob | bob123 | 2 |
-| carol | carol123 | 3 |
-
-### Vulnerability: Broken Object Level Authorization (BOLA)
-
-```
-GET /api/accounts/{account_id}
-```
-
-The endpoint authenticates the user (validates JWT) but does **not** verify that the authenticated user owns the requested account.
-
-**Exploit:** Alice logs in, then requests `/api/accounts/2` (Bob's account) and receives Bob's balance and account details.
-
----
-
-## Installation
+## 13. Setup
 
 ### Prerequisites
+- Python 3.10+ (tested on 3.11/3.14)
+- Node.js 18+ & npm
+- Git CLI
 
-- Python 3.10+
-- Node.js 18+
-
-### Quick Start
-
-```bash
-git clone <repo>
-cd securefix
-./start.sh
-```
-
-This starts:
-- Demo app on http://localhost:8001
-- SECUREFIX backend on http://localhost:8000
-- SECUREFIX frontend on http://localhost:3000
-
----
-
-## Running Locally (Manual)
-
-### Demo App
+### Quick Start (Local Development)
 
 ```bash
-cd demo-app
-python3 -m venv .venv
-.venv/bin/pip install fastapi uvicorn PyJWT bcrypt python-multipart
-.venv/bin/uvicorn app.main:app --port 8001 --reload
-```
+# 1. Clone repository
+git clone https://github.com/smzuhaib06/SecureFix-X.git
+cd SecureFix-X
 
-### SECUREFIX Backend
-
-```bash
+# 2. Setup backend
 cd backend
-python3 -m venv .venv
-.venv/bin/pip install fastapi uvicorn pydantic python-dotenv aiofiles httpx
-DEMO_REPO_PATH=../demo-app .venv/bin/uvicorn app.main:app --port 8000 --reload
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+
+# 3. Setup frontend
+cd ../frontend
+npm install
+npm run dev
+
+# 4. Open in Browser
+# Frontend: http://localhost:3000
+# Backend API Docs: http://localhost:8000/docs
 ```
 
-### SECUREFIX Frontend
+---
+
+## 14. Deployment
+
+### Frontend (Vercel)
+The frontend is optimized for **Vercel**:
+- **Framework:** Next.js
+- **Root Directory:** `frontend`
+- **Build Command:** `next build --no-lint`
+- **Environment Variable:** `NEXT_PUBLIC_API_URL` pointing to backend API.
+
+### Backend (Docker / Render / Fly.io)
+Deploy the backend using the included production `backend/Dockerfile`:
+```bash
+docker build -t securefix-backend -f backend/Dockerfile .
+docker run -p 8000:8000 -e PORT=8000 securefix-backend
+```
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for complete cloud deployment specifications.
+
+---
+
+## 15. Testing
+
+The backend test suite verifies every agent, model, invariant, mutation, RAG query, and GitHub cloning connector:
 
 ```bash
-cd frontend
-npm install
-NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
+# Run complete test suite from repository root
+pytest -q
+```
+
+**Verified Test Output:**
+```text
+======================== 368 passed, 1 warning in 52.86s ========================
+```
+
+Frontend production build check:
+```bash
+cd frontend && npm run build
+# Generating static pages (14/14) - 0 errors
 ```
 
 ---
 
-## Example Investigation
+## Guiding Philosophy
 
-1. Open http://localhost:3000
-2. Click **Start Demo Investigation** — one click launches the BOLA scenario
-3. Watch 7 agents execute in parallel (SSE live feed)
-4. Review correlated evidence across all agents
-5. Read the root cause analysis
-6. Inspect the proposed patch (diff view)
-7. Click **Approve & Apply**
-8. Watch verification run tests
-9. Confirm the exploit is blocked
+> *"A patch is not proof of remediation."*
 
----
-
-## Verification Workflow
-
-After approval, SECUREFIX:
-
-1. Applies the patch to the repository
-2. Writes the generated regression test
-3. Executes the full test suite (pytest)
-4. Re-scans the patched file for vulnerable patterns
-5. Confirms the exploit vector is blocked
-6. Reports: VERIFIED or FAILED
-
-Before fix → `test_alice_cannot_access_bobs_account` **FAILS** (200 returned)  
-After fix → `test_alice_cannot_access_bobs_account` **PASSES** (403 returned)
-
----
-
-## Security Model
-
-- Human approval required before any code modification
-- No silent repository changes
-- Audit timeline on every investigation
-- Input validation on all API endpoints
-- Path traversal protection on repository access
-- No secrets in repository — environment variables only
-
----
-
-## IBM Bob 2.0 Usage
-
-Bob 2.0 was used throughout development for:
-
-- Understanding repository architecture before implementing agents
-- Implementing the multi-agent orchestration pattern
-- Generating the correlation engine logic
-- Debugging the SSE streaming implementation
-- Refactoring the remediation engine
-- Writing and fixing tests
-- Implementing UI components
-
----
-
-## Future Roadmap
-
-- GitHub/GitLab pull request integration
-- Docker sandbox for isolated verification
-- PDF report export
-- Multi-repository support
-- Enterprise RBAC
-- Slack/Jira integration
-- Historical analytics dashboard
-- Support for more vulnerability classes (SSRF, XXE, deserialization)
-
----
-
-## Team
-
-Built for the IBM Bob 2.0 Hackathon 2026.
-
----
-
-*SECUREFIX — Detect. Understand. Fix. Verify.*
+# VERIFIED WITHIN TESTED SCOPE

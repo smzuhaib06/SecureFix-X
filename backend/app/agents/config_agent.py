@@ -74,17 +74,29 @@ class ConfigAgent(BaseAgent):
         return found
 
     def _check_dockerfile(self, rel_path: str, content: str) -> List[AgentFinding]:
+        from app.models import FindingStatus
         findings = []
 
         # Running as root
         if not re.search(r'^USER\s+(?!root)', content, re.MULTILINE):
+            # Extract a real evidence line (FROM statement or last RUN)
+            from_match = re.search(r'^FROM\s+.+', content, re.MULTILINE)
+            evidence_excerpt = from_match.group(0).strip() if from_match else "(no FROM found)"
             findings.append(AgentFinding(
                 title="Container runs as root user",
                 severity=Severity.MEDIUM,
                 confidence=0.8,
                 files=[rel_path],
-                evidence=["No non-root USER directive found in Dockerfile"],
+                evidence=[
+                    f"No non-root USER directive found in {rel_path}",
+                    f"Base image: {evidence_excerpt}",
+                    "Container processes run as root by default when USER is not set",
+                ],
                 recommendation="Add `USER appuser` directive to run container as non-root.",
+                finding_status=FindingStatus.CONFIRMED,
+                evidence_excerpt=evidence_excerpt,
+                technology="docker",
+                provenance=f"ConfigAgent: Dockerfile USER directive check in {rel_path}",
             ))
 
         # Exposed sensitive ports
